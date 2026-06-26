@@ -250,7 +250,7 @@ async def analyze_ticket(ticket: TicketRequest) -> TicketResponse:
             agent_summary=agent_summary,
             recommended_next_action=recommended_next_action,
             customer_reply=customer_reply,
-            human_review_required=classification["human_review_required"],
+            human_review_required=classification["human_review_required"] or injection_detected,
             confidence=confidence,
             reason_codes=reason_codes,
         )

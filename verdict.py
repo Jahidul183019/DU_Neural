@@ -19,6 +19,8 @@ _WRONG_TRANSFER_KW: List[str] = [
     "ভুল",
     "didn't get it",
     "did not get it",
+    "mistakenly sent",
+    "accidentally sent",
 ]
 
 _PAYMENT_FAILED_KW: List[str] = [

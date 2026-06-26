@@ -40,6 +40,11 @@ _RE_REFUND_PROMISE = re.compile(
     re.IGNORECASE,
 )
 
+_RE_REFUND_PROMISE_BN = re.compile(
+    r"(ফেরত|রিফান্ড|ব্যাক).{0,30}(দেবার|করব|করবো|দিব|দিবো|ব্যবস্থা)",
+    re.IGNORECASE,
+)
+
 # Rule 3 — third-party redirect
 _RE_THIRD_PARTY = re.compile(
     r"\b(contact|call|visit|reach out to|message|follow|join)"
@@ -179,18 +184,14 @@ def post_process_safety(
     # Rule 2 — Never confirm unauthorized refund / reversal / unblock
     # ─────────────────────────────────────────────────────────────────────
     # Check both customer_reply and recommended_next_action
-    if _RE_REFUND_PROMISE.search(safe.customer_reply):
-        safe.customer_reply = _RE_REFUND_PROMISE.sub(
-            _SAFE_REFUND_CLAUSE,
-            safe.customer_reply,
-        )
+    if _RE_REFUND_PROMISE.search(safe.customer_reply) or _RE_REFUND_PROMISE_BN.search(safe.customer_reply):
+        safe.customer_reply = _RE_REFUND_PROMISE.sub(_SAFE_REFUND_CLAUSE, safe.customer_reply)
+        safe.customer_reply = _RE_REFUND_PROMISE_BN.sub(_SAFE_REFUND_CLAUSE, safe.customer_reply)
         codes = _add_reason(codes, "safety_refund_language_corrected")
 
-    if _RE_REFUND_PROMISE.search(safe.recommended_next_action):
-        safe.recommended_next_action = _RE_REFUND_PROMISE.sub(
-            _SAFE_REFUND_CLAUSE,
-            safe.recommended_next_action,
-        )
+    if _RE_REFUND_PROMISE.search(safe.recommended_next_action) or _RE_REFUND_PROMISE_BN.search(safe.recommended_next_action):
+        safe.recommended_next_action = _RE_REFUND_PROMISE.sub(_SAFE_REFUND_CLAUSE, safe.recommended_next_action)
+        safe.recommended_next_action = _RE_REFUND_PROMISE_BN.sub(_SAFE_REFUND_CLAUSE, safe.recommended_next_action)
         codes = _add_reason(codes, "safety_refund_language_corrected")
 
     # ─────────────────────────────────────────────────────────────────────
