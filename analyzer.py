@@ -95,6 +95,7 @@ async def _call_gemini(system: str, user_prompt: str, api_key: str) -> dict:
                 "generationConfig": {
                     "maxOutputTokens": 1000,
                     "temperature": 0.3,
+                    "responseMimeType": "application/json",
                 },
             },
         )

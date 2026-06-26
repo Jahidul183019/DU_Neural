@@ -26,7 +26,7 @@ logger = logging.getLogger("queuestorm.safety")
 
 # Rule 1 — credential solicitation
 _RE_CREDENTIAL = re.compile(
-    r"\b(share|send|provide|give|enter|type|tell|submit|confirm)"
+    r"\b(share|send|provide|give|enter|type|tell|submit|confirm|what is|need|require)"
     r".{0,40}"
     r"(pin|otp|one.time|password|passcode|card.number|full.card)\b",
     re.IGNORECASE,

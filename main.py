@@ -55,9 +55,9 @@ async def log_requests(request: Request, call_next):
 # ---------------------------------------------------------------------------
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-    """Return 422 for Pydantic / FastAPI validation errors."""
+    """Return 400 for Pydantic / FastAPI validation errors."""
     return JSONResponse(
-        status_code=422,
+        status_code=400,
         content={"detail": exc.errors()},
     )
 

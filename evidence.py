@@ -225,9 +225,10 @@ def find_relevant_transaction(
     now = datetime.now(timezone.utc)
 
     # ── Special case: duplicate payment ──────────────────────────────────
-    dup_id = _find_duplicate_pair(history)
-    if dup_id is not None:
-        return dup_id
+    if _lower_contains(complaint, _DUPLICATE_KW):
+        dup_id = _find_duplicate_pair(history)
+        if dup_id is not None:
+            return dup_id
 
     # ── Step 1 – amounts ─────────────────────────────────────────────────
     amounts = _extract_amounts(complaint)
@@ -280,6 +281,16 @@ def find_relevant_transaction(
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. judge_evidence_verdict
 # ═══════════════════════════════════════════════════════════════════════════
+
+_DUPLICATE_KW: List[str] = [
+    "duplicate",
+    "twice",
+    "double",
+    "two times",
+    "charged twice",
+    "double charge",
+    "2 times",
+]
 
 _WRONG_TRANSFER_KW: List[str] = [
     "wrong transfer",
@@ -374,8 +385,9 @@ def judge_evidence_verdict(
             return "consistent"
 
     # Duplicate payment pair exists in history
-    if _find_duplicate_pair(history) is not None:
-        return "consistent"
+    if _lower_contains(complaint, _DUPLICATE_KW):
+        if _find_duplicate_pair(history) is not None:
+            return "consistent"
 
     # Settlement is pending and merchant complains of delay
     if _lower_contains(complaint, ["settlement", "not settled", "delay"]):
@@ -510,7 +522,7 @@ def classify_case(
     # ─────────────────────────────────────────────────────────────────────
     # Rule 2 — Duplicate Payment
     # ─────────────────────────────────────────────────────────────────────
-    if result is None and _find_duplicate_pair(history) is not None:
+    if result is None and _lower_contains(complaint, _DUPLICATE_KW) and _find_duplicate_pair(history) is not None:
         result = {
             "case_type": "duplicate_payment",
             "severity": "high",
@@ -534,21 +546,15 @@ def classify_case(
 
     # ─────────────────────────────────────────────────────────────────────
     # Rule 4 — Payment Failed
-    #   Keywords must match AND relevant transaction status ∈ {failed, pending}
-    #   (if no relevant txn exists, benefit of doubt → rule fires)
     # ─────────────────────────────────────────────────────────────────────
     if result is None and _lower_contains(complaint, _PAY_FAILED_KW):
-        status_ok = True
-        if relevant_txn is not None:
-            status_ok = relevant_txn.status in ("failed", "pending")
-        if status_ok:
-            result = {
-                "case_type": "payment_failed",
-                "severity": "high",
-                "department": "payments_ops",
-                "human_review_required": False,
-                "reason_codes": ["payment_failure_reported"],
-            }
+        result = {
+            "case_type": "payment_failed",
+            "severity": "high",
+            "department": "payments_ops",
+            "human_review_required": False,
+            "reason_codes": ["payment_failure_reported"],
+        }
 
     # ─────────────────────────────────────────────────────────────────────
     # Rule 5 — Agent Cash-In Issue
@@ -622,7 +628,7 @@ def classify_case(
     # ═════════════════════════════════════════════════════════════════════
     # human_review_required overrides (applied AFTER classification)
     # ═════════════════════════════════════════════════════════════════════
-    max_amount = max((t.amount for t in history), default=0.0)
+    max_amount = _get_relevant_amount(relevant_txn, complaint)
 
     # ── "Always True" conditions ─────────────────────────────────────────
     always_true = False
