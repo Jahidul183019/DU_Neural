@@ -22,12 +22,10 @@ import re
 import httpx
 from fastapi import HTTPException
 
-from evidence import (
-    classify_case,
-    detect_language,
-    find_relevant_transaction,
-    judge_evidence_verdict,
-)
+from utils import detect_language
+from matcher import find_relevant_transaction
+from verdict import judge_evidence_verdict
+from classifier import classify_case
 from models import TicketRequest, TicketResponse
 from prompts import SYSTEM_PROMPT, build_user_prompt
 from safety import _RE_PROMPT_INJECTION, post_process_safety
