@@ -77,30 +77,52 @@ def _fallback_reply(language: str) -> str:
     return _FALLBACK_REPLY_EN
 
 
-async def _call_gemini(system: str, user_prompt: str, api_key: str) -> dict:
+import asyncio
+
+async def _call_gemini(system: str, user_prompt: str, api_key: str, max_retries: int = 2) -> dict:
     """POST to Gemini ``generateContent`` and return parsed JSON body.
 
-    Raises on timeout, HTTP errors, or missing fields so the caller can
-    fall back gracefully.
+    Includes automatic exponential backoff for HTTP 429 (Rate Limit) and 50x errors.
     """
-    async with httpx.AsyncClient(timeout=_LLM_TIMEOUT) as client:
-        resp = await client.post(
-            _GEMINI_ENDPOINT,
-            params={"key": api_key},
-            json={
-                "system_instruction": {"parts": [{"text": system}]},
-                "contents": [
-                    {"role": "user", "parts": [{"text": user_prompt}]},
-                ],
-                "generationConfig": {
-                    "maxOutputTokens": 1000,
-                    "temperature": 0.3,
-                    "responseMimeType": "application/json",
-                },
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=_LLM_TIMEOUT) as client:
+                resp = await client.post(
+                    _GEMINI_ENDPOINT,
+                    params={"key": api_key},
+                    json={
+                        "system_instruction": {"parts": [{"text": system}]},
+                        "contents": [
+                            {"role": "user", "parts": [{"text": user_prompt}]},
+                        ],
+                        "generationConfig": {
+                            "maxOutputTokens": 1000,
+                            "temperature": 0.3,
+                            "responseMimeType": "application/json",
+                        },
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 429 or status >= 500:
+                if attempt < max_retries:
+                    wait_time = 2 ** attempt
+                    logger.warning(
+                        "Gemini API returned %d. Retrying in %d seconds (attempt %d/%d)...",
+                        status, wait_time, attempt + 1, max_retries
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+            raise
+        except httpx.TimeoutException:
+            if attempt < max_retries:
+                wait_time = 2 ** attempt
+                logger.warning("Gemini API timeout. Retrying in %d seconds...", wait_time)
+                await asyncio.sleep(wait_time)
+                continue
+            raise
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -194,6 +216,15 @@ async def analyze_ticket(ticket: TicketRequest) -> TicketResponse:
             except (
                 httpx.TimeoutException,
                 httpx.HTTPStatusError,
+            ) as exc:
+                logger.error(
+                    "LLM service unavailable for ticket %s: %s",
+                    ticket.ticket_id,
+                    exc,
+                )
+                from fastapi import HTTPException
+                raise HTTPException(status_code=503, detail="LLM service temporarily unavailable")
+            except (
                 json.JSONDecodeError,
                 KeyError,
                 IndexError,
