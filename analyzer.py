@@ -5,7 +5,7 @@ Orchestrates the full analysis flow:
   2. Prompt-injection pre-screen
   3. Evidence extraction  (rule-based)
   4. Classification        (rule-based)
-  5. LLM text generation   (Gemini API via httpx)
+  5. LLM text generation   (Groq API via httpx)
   6. Response parsing
   7. Response assembly
   8. Safety post-filter     (unconditional)
