@@ -156,7 +156,10 @@ Six hard safety rules enforced by `post_process_safety()` after **every** respon
 ├── main.py            # FastAPI app, routes, middleware, error handlers
 ├── models.py          # Pydantic v2 request/response models
 ├── analyzer.py        # 9-step async analysis pipeline
-├── evidence.py        # Rule-based evidence engine (4 public functions)
+├── utils.py           # Text parsing, formatting, language detection
+├── matcher.py         # Transaction scoring and evidence matching
+├── verdict.py         # Consistency/contradiction evaluation
+├── classifier.py      # Keyword lists and case classification routing
 ├── safety.py          # Hard safety post-processor (6 rules)
 ├── prompts.py         # LLM system prompt + user prompt builder
 ├── requirements.txt   # Python dependencies
