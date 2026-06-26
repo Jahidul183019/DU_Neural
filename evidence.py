@@ -794,7 +794,7 @@ def classify_case(
     if always_true:
         result["human_review_required"] = True
 
-    if evidence_verdict == "insufficient_data" and result["case_type"] != "phishing_or_social_engineering":
+    if evidence_verdict == "insufficient_data" and result["case_type"] != "phishing_or_social_engineering" and not always_true:
         result["human_review_required"] = False
 
     # ── "Always False" condition (only when no "Always True" fired) ──────
