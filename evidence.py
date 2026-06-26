@@ -68,10 +68,27 @@ def _normalize_phone(raw: str) -> str:
     return raw  # not a phone number — return as-is
 
 
-def _extract_amounts(text: str) -> List[float]:
-    """Extract numeric monetary amounts, including Bengali digits.
+# Word-to-number mapping for English and Bangla
+_WORD_AMOUNTS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "hundred": 100, "thousand": 1000, "lakh": 100000, "lac": 100000,
+    # Bangla
+    "\u098f\u0995": 1, "\u09a6\u09c1\u0987": 2, "\u09a4\u09bf\u09a8": 3, "\u099a\u09be\u09b0": 4,
+    "\u09aa\u09be\u0981\u099a": 5, "\u099b\u09af\u09bc": 6, "\u099b\u09df": 6, "\u09b8\u09be\u09a4": 7,
+    "\u0986\u099f": 8, "\u09a8\u09af\u09bc": 9, "\u09a8\u09df": 9, "\u09a6\u09b6": 10,
+    "\u09b6\u09a4": 100, "\u09b9\u09be\u099c\u09be\u09b0": 1000, "\u09b2\u09be\u0996": 100000,
+}
+_MULTIPLIERS = {"thousand", "hundred", "lakh", "lac",
+                "\u09b9\u09be\u099c\u09be\u09b0", "\u09b6\u09a4", "\u09b2\u09be\u0996"}
 
-    Matches patterns like ``5000``, ``5,000``, ``5000.50``, ``৫০০০``.
+
+def _extract_amounts(text: str) -> List[float]:
+    """Extract numeric monetary amounts, including Bengali digits and word amounts.
+
+    Matches patterns like ``5000``, ``5,000``, ``5000.50``, ``৫০০০``,
+    ``five thousand``, ``পাঁচ হাজার``.
     """
     normalised = text.translate(_BN_DIGIT_TABLE)
     # Match digit groups optionally containing commas / decimal
@@ -84,6 +101,20 @@ def _extract_amounts(text: str) -> List[float]:
                 amounts.append(val)
         except ValueError:
             continue
+
+    # Word-based amount parsing
+    tokens = normalised.lower().split()
+    for i, token in enumerate(tokens):
+        if token in _WORD_AMOUNTS:
+            value = _WORD_AMOUNTS[token]
+            if i + 1 < len(tokens) and tokens[i + 1] in _MULTIPLIERS:
+                value *= _WORD_AMOUNTS[tokens[i + 1]]
+                if value not in amounts:
+                    amounts.append(float(value))
+            elif token not in _MULTIPLIERS:
+                if float(value) not in amounts:
+                    amounts.append(float(value))
+
     return amounts
 
 
@@ -368,6 +399,20 @@ def judge_evidence_verdict(
 
     # ── INCONSISTENCY checks (run first — early return) ──────────────────
 
+    # Amount contradiction: complaint says X taka but matched txn is for Y taka
+    complaint_amounts = _extract_amounts(complaint)
+    if complaint_amounts and relevant_txn.amount is not None:
+        if not any(
+            abs(relevant_txn.amount - a) < 0.01 for a in complaint_amounts
+        ):
+            return "inconsistent"
+
+    # Status contradiction: complaint says "deducted" but txn status is "reversed"
+    _DEDUCTED_TERMS = ["deducted", "deduct", "cut", "taken", "charged",
+                       "money gone", "balance gone", "কেটে", "কেটেছে", "কাটা"]
+    if relevant_txn.status == "reversed" and _lower_contains(complaint, _DEDUCTED_TERMS):
+        return "inconsistent"
+
     # "wrong transfer" but established recipient (≥ 2 OTHER transfers to same cp)
     if _lower_contains(complaint, _WRONG_TRANSFER_KW):
         same_cp_count = sum(
@@ -448,12 +493,51 @@ _PHISHING_KW: List[str] = [
     "otp",
     "pin",
     "password",
+    "passcode",
+    "cvv",
+    "card number",
     "unknown call",
     "someone called",
     "hacker",
     "scam",
     "fraud call",
+    "fraud",
     "verify account",
+    "suspicious",
+    "lottery",
+    "prize",
+    "\u0993\u099f\u09bf\u09aa\u09bf",
+    "\u09aa\u09bf\u09a8",
+    "\u09aa\u09be\u09b8\u0993\u09af\u09bc\u09be\u09b0\u09cd\u09a1",
+    "\u09aa\u09cd\u09b0\u09a4\u09be\u09b0\u0995",
+]
+
+# Impersonation terms ("from bKash", "agent called", etc.)
+_IMPERSONATION_KW: List[str] = [
+    "from bkash",
+    "bkash called",
+    "agent called",
+    "company called",
+    "from bank",
+    "called me",
+    "call from",
+    "\u09ac\u09bf\u0995\u09be\u09b6 \u09a5\u09c7\u0995\u09c7",
+    "\u09ab\u09cb\u09a8 \u09a6\u09bf\u09af\u09bc\u09c7",
+]
+
+# Threat terms ("account will be blocked", etc.)
+_THREAT_KW: List[str] = [
+    "account will be blocked",
+    "account blocked",
+    "account block",
+    "account freeze",
+    "blocked if",
+    "block if",
+    "kyc update",
+    "verify kyc",
+    "update kyc",
+    "\u0985\u09cd\u09af\u09be\u0995\u09be\u0989\u09a8\u09cd\u099f \u09ac\u09cd\u09b2\u0995",
+    "\u09ac\u09cd\u09b2\u0995",
 ]
 
 _WRONG_XFER_KW: List[str] = [
@@ -536,15 +620,23 @@ def classify_case(
 
     # ─────────────────────────────────────────────────────────────────────
     # Rule 1 — Phishing / Social Engineering
+    # Triggers: (a) direct phishing keywords, (b) impersonation + threat
     # ─────────────────────────────────────────────────────────────────────
-    if result is None and _lower_contains(complaint, _PHISHING_KW):
-        result = {
-            "case_type": "phishing_or_social_engineering",
-            "severity": "critical",
-            "department": "fraud_risk",
-            "human_review_required": True,
-            "reason_codes": ["phishing_detected", "fraud_risk"],
-        }
+    if result is None:
+        is_phishing = _lower_contains(complaint, _PHISHING_KW)
+        # Impersonation + threat pattern (e.g., "call from bKash" + "account blocked")
+        is_impersonation_threat = (
+            _lower_contains(complaint, _IMPERSONATION_KW)
+            and _lower_contains(complaint, _THREAT_KW)
+        )
+        if is_phishing or is_impersonation_threat:
+            result = {
+                "case_type": "phishing_or_social_engineering",
+                "severity": "critical",
+                "department": "fraud_risk",
+                "human_review_required": True,
+                "reason_codes": ["phishing_detected", "fraud_risk"],
+            }
 
     # ─────────────────────────────────────────────────────────────────────
     # Rule 2 — Duplicate Payment
@@ -656,9 +748,22 @@ def classify_case(
         }
 
     # ═════════════════════════════════════════════════════════════════════
-    # human_review_required overrides (applied AFTER classification)
+    # High-value severity escalation (≥ 50,000 BDT)
+    # Per problem statement: "True for disputes, suspicious cases, high
+    # value cases, or ambiguous evidence."
     # ═════════════════════════════════════════════════════════════════════
     max_amount = _get_relevant_amount(relevant_txn, complaint)
+    _SEVERITY_ORDER = ["low", "medium", "high", "critical"]
+
+    if max_amount >= 50000 and result["severity"] != "critical":
+        cur_idx = _SEVERITY_ORDER.index(result["severity"])
+        result["severity"] = _SEVERITY_ORDER[min(cur_idx + 1, len(_SEVERITY_ORDER) - 1)]
+        if "high_value_transaction" not in result["reason_codes"]:
+            result["reason_codes"].append("high_value_transaction")
+
+    # ═════════════════════════════════════════════════════════════════════
+    # human_review_required overrides (applied AFTER classification)
+    # ═════════════════════════════════════════════════════════════════════
 
     # ── "Always True" conditions ─────────────────────────────────────────
     always_true = False
@@ -668,6 +773,13 @@ def classify_case(
         if "evidence_inconsistent" not in result["reason_codes"]:
             result["reason_codes"].append("evidence_inconsistent")
 
+    # High-value transaction (≥ 50,000) → always human review
+    if max_amount >= 50000:
+        always_true = True
+        if "high_value_transaction" not in result["reason_codes"]:
+            result["reason_codes"].append("high_value_transaction")
+
+    # Lower threshold for customer-type users
     if max_amount > 5000 and user_type == "customer":
         always_true = True
         if "high_value_transaction" not in result["reason_codes"]:
@@ -686,9 +798,6 @@ def classify_case(
         result["human_review_required"] = False
 
     # ── "Always False" condition (only when no "Always True" fired) ──────
-    #    Applies when the only viable next step is to ask the customer
-    #    a clarifying question (ambiguous match, no relevant txn,
-    #    insufficient evidence, low severity).
     if not always_true:
         if (
             relevant_id is None
