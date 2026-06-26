@@ -55,9 +55,10 @@ async def log_requests(request: Request, call_next):
 # ---------------------------------------------------------------------------
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-    """Return 400 for Pydantic / FastAPI validation errors."""
+    """Return 400 for malformed JSON, 422 for semantic/schema validation errors."""
+    is_json_error = any(err.get("type") == "json_invalid" for err in exc.errors())
     return JSONResponse(
-        status_code=400,
+        status_code=400 if is_json_error else 422,
         content={"detail": exc.errors()},
     )
 

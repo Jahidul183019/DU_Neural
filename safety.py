@@ -26,33 +26,33 @@ logger = logging.getLogger("queuestorm.safety")
 
 # Rule 1 — credential solicitation
 _RE_CREDENTIAL = re.compile(
-    r"\b(share|send|provide|give|enter|type|tell|submit|confirm|what is|need|require)"
-    r".{0,40}"
-    r"(pin|otp|one.time|password|passcode|card.number|full.card)\b",
+    r"\b(share|send|provide|give|enter|type|tell|submit|confirm|what is|need|require|verify|ask)"
+    r".{0,60}"
+    r"(pin|otp|one.time|password|passcode|card.number|full.card|cvv|security code|card details)\b",
     re.IGNORECASE,
 )
 
 # Rule 2 — unauthorized refund / reversal / unblock promise
 _RE_REFUND_PROMISE = re.compile(
-    r"\b(we will|we'll|you will|you'll|i will|going to)"
-    r".{0,30}"
-    r"(refund|reverse|credit|return your|unblock|recover)\b",
+    r"\b(we will|we'll|you will|you'll|i will|going to|your amount will be)"
+    r".{0,40}"
+    r"(refund|reverse|credit|return|unblock|recover|release|credited back|push.*back|restore|get.*back)\b",
     re.IGNORECASE,
 )
 
 # Rule 3 — third-party redirect
 _RE_THIRD_PARTY = re.compile(
-    r"\b(contact|call|visit|reach out to|message)"
+    r"\b(contact|call|visit|reach out to|message|follow|join)"
     r".{0,40}"
-    r"(third.party|external|another (service|provider|number|agent)|whatsapp|facebook)\b",
+    r"(third.party|external|another (service|provider|number|agent)|whatsapp|facebook|link|telegram|instagram|group|page)\b",
     re.IGNORECASE,
 )
 
 # Rule 4 — phishing: attempt to verify the caller
 _RE_VERIFY_CALLER = re.compile(
-    r"\b(we will check|we will verify|we will investigate)"
-    r".{0,30}"
-    r"(call|caller|person|number)\b",
+    r"\b(we will check|we will verify|we will investigate|our agent will call|we will authenticate|we will confirm)"
+    r".{0,40}"
+    r"(call|caller|person|number|call you back|identity)\b",
     re.IGNORECASE,
 )
 
@@ -134,6 +134,7 @@ def _pick_language_reply(language: str | None) -> str:
 def post_process_safety(
     response: TicketResponse,
     ticket: TicketRequest,
+    effective_language: str,
 ) -> TicketResponse:
     """Apply hard safety rules to *response* before it leaves the system.
 
@@ -171,7 +172,7 @@ def post_process_safety(
     # Rule 1 — Never ask for credentials (PIN / OTP / password / card)
     # ─────────────────────────────────────────────────────────────────────
     if _RE_CREDENTIAL.search(safe.customer_reply):
-        safe.customer_reply = _pick_language_reply(ticket.language)
+        safe.customer_reply = _pick_language_reply(effective_language)
         codes = _add_reason(codes, "safety_credential_violation_corrected")
 
     # ─────────────────────────────────────────────────────────────────────

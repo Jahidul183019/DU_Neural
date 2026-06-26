@@ -80,6 +80,10 @@ def build_user_prompt(
     if ticket.campaign_context:
         lines.append(f"Campaign Context: {ticket.campaign_context}")
 
+    if ticket.metadata:
+        import json
+        lines.append(f"Metadata: {json.dumps(ticket.metadata)}")
+
     # ── Transaction history ──────────────────────────────────────────────
     lines.append("")
     history = ticket.transaction_history or []

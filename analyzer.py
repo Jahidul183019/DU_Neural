@@ -179,12 +179,17 @@ async def analyze_ticket(ticket: TicketRequest) -> TicketResponse:
                 clean = _RE_MD_FENCES.sub("", raw_text).strip()
                 parsed = json.loads(clean)
 
-                # Pull the three fields (fall back individually)
-                agent_summary = parsed.get("agent_summary", agent_summary)
-                recommended_next_action = parsed.get(
-                    "recommended_next_action", recommended_next_action
-                )
-                customer_reply = parsed.get("customer_reply", customer_reply)
+                # Pull the three fields (fall back individually, handle explicit nulls)
+                new_summary = parsed.get("agent_summary")
+                new_action = parsed.get("recommended_next_action")
+                new_reply = parsed.get("customer_reply")
+
+                if not new_summary or not new_action or not new_reply:
+                    used_fallback = True
+
+                agent_summary = new_summary or agent_summary
+                recommended_next_action = new_action or recommended_next_action
+                customer_reply = new_reply or customer_reply
 
             except (
                 httpx.TimeoutException,
@@ -241,7 +246,11 @@ async def analyze_ticket(ticket: TicketRequest) -> TicketResponse:
         # ─────────────────────────────────────────────────────────────────
         # Step 8 — Safety post-filter (UNCONDITIONAL)
         # ─────────────────────────────────────────────────────────────────
-        response = post_process_safety(response, ticket)
+        response = post_process_safety(response, ticket, effective_language)
+        
+        if response.reason_codes and any(code.startswith("safety_") for code in response.reason_codes):
+            if response.confidence is not None:
+                response.confidence = min(response.confidence, 0.50)
 
         # ─────────────────────────────────────────────────────────────────
         # Step 9 — Return

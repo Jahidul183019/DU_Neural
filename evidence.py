@@ -56,11 +56,15 @@ def _normalize_phone(raw: str) -> str:
     Non-phone strings are returned unchanged so that merchant / agent IDs
     are not mangled.
     """
+    if not raw or raw[0].isalpha():
+        return raw
     digits = re.sub(r"\D", "", raw)
     if len(digits) >= 10:
         if digits.startswith("880") and len(digits) == 13:
             return "0" + digits[3:]
-        return digits
+        # Only return digits if it looks like a phone number (e.g., 01...)
+        if digits.startswith("01") and len(digits) == 11:
+            return digits
     return raw  # not a phone number — return as-is
 
 
@@ -90,11 +94,15 @@ def _extract_time_window(
     """Derive a (start, end) time-range from natural-language keywords."""
     lower = text.lower()
 
-    if any(kw in lower for kw in ("today", "morning", "afternoon", "evening")):
+    if "today" in lower:
+        return (now.replace(hour=0, minute=0, second=0, microsecond=0), now)
+        
+    if any(kw in lower for kw in ("morning", "afternoon", "evening")):
         return (now - timedelta(hours=24), now)
 
     if "yesterday" in lower:
-        return (now - timedelta(hours=48), now - timedelta(hours=24))
+        start_of_yesterday = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=24)
+        return (start_of_yesterday, start_of_yesterday + timedelta(hours=24))
 
     # Explicit clock times like "2pm", "11 am"
     if re.search(r"\d{1,2}\s*(?:am|pm)", lower):
@@ -148,7 +156,7 @@ def _find_duplicate_pair(history: List[TransactionEntry]) -> Optional[str]:
 def _lower_contains(text: str, keywords: List[str]) -> bool:
     """Return *True* if any *keyword* appears in the lowercased *text*."""
     lower = text.lower()
-    return any(kw in lower for kw in keywords)
+    return any(re.search(rf"(?:\b|\s|^){re.escape(kw)}(?:\b|\s|$)", lower) for kw in keywords)
 
 
 def _counterparty_matches_hint(
@@ -177,7 +185,7 @@ def _get_relevant_amount(
     if relevant_txn:
         return relevant_txn.amount
     amounts = _extract_amounts(complaint)
-    return max(amounts) if amounts else 0.0
+    return amounts[0] if len(amounts) == 1 else 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -223,6 +231,12 @@ def find_relevant_transaction(
         return None
 
     now = datetime.now(timezone.utc)
+    try:
+        latest = max(_parse_timestamp(t.timestamp) for t in history)
+        if latest > now - timedelta(days=365):
+            now = latest
+    except (ValueError, TypeError):
+        pass
 
     # ── Special case: duplicate payment ──────────────────────────────────
     if _lower_contains(complaint, _DUPLICATE_KW):
@@ -342,15 +356,24 @@ def judge_evidence_verdict(
 
     if relevant_txn is None:
         return "insufficient_data"
+        
+    now = datetime.now(timezone.utc)
+    if history:
+        try:
+            latest = max(_parse_timestamp(t.timestamp) for t in history)
+            if latest > now - timedelta(days=365):
+                now = latest
+        except (ValueError, TypeError):
+            pass
 
     # ── INCONSISTENCY checks (run first — early return) ──────────────────
 
-    # "wrong transfer" but established recipient (≥ 3 transfers to same cp)
+    # "wrong transfer" but established recipient (≥ 2 OTHER transfers to same cp)
     if _lower_contains(complaint, _WRONG_TRANSFER_KW):
         same_cp_count = sum(
-            1 for t in history if t.counterparty == relevant_txn.counterparty
+            1 for t in history if t.counterparty == relevant_txn.counterparty and t.transaction_id != relevant_txn.transaction_id
         )
-        if same_cp_count >= 3:
+        if same_cp_count >= 2:
             return "inconsistent"
 
     # "payment failed" but transaction actually completed
@@ -363,7 +386,6 @@ def judge_evidence_verdict(
         if relevant_txn.status == "completed" and relevant_txn.type == "cash_in":
             try:
                 txn_time = _parse_timestamp(relevant_txn.timestamp)
-                now = datetime.now(timezone.utc)
                 if (now - txn_time).total_seconds() > 86_400:
                     return "inconsistent"
             except (ValueError, TypeError):
@@ -376,12 +398,12 @@ def judge_evidence_verdict(
 
     # ── CONSISTENCY checks ───────────────────────────────────────────────
 
-    # "wrong transfer" and only 1 transfer to that counterparty
+    # "wrong transfer" and no other transfers to that counterparty
     if _lower_contains(complaint, _WRONG_TRANSFER_KW):
         same_cp_count = sum(
-            1 for t in history if t.counterparty == relevant_txn.counterparty
+            1 for t in history if t.counterparty == relevant_txn.counterparty and t.transaction_id != relevant_txn.transaction_id
         )
-        if same_cp_count == 1:
+        if same_cp_count == 0:
             return "consistent"
 
     # "payment failed" and status is indeed failed / pending
@@ -554,9 +576,11 @@ def classify_case(
     # Rule 4 — Payment Failed
     # ─────────────────────────────────────────────────────────────────────
     if result is None and _lower_contains(complaint, _PAY_FAILED_KW):
+        amount = _get_relevant_amount(relevant_txn, complaint)
+        severity = "high" if amount > 2000 else ("medium" if amount > 500 else "low")
         result = {
             "case_type": "payment_failed",
-            "severity": "high",
+            "severity": severity,
             "department": "payments_ops",
             "human_review_required": False,
             "reason_codes": ["payment_failure_reported"],
