@@ -56,12 +56,9 @@ _FALLBACK_REPLY_BN = (
 # Strip ```json … ``` fences that LLMs sometimes add
 _RE_MD_FENCES = re.compile(r"^```(?:json)?\s*\n?|```\s*$", re.MULTILINE)
 
-# Gemini API config
-_GEMINI_MODEL = "gemini-2.0-flash"
-_GEMINI_ENDPOINT = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{_GEMINI_MODEL}:generateContent"
-)
+# Groq API config
+_GROQ_MODEL = "llama-3.3-70b-versatile"
+_GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 _LLM_TIMEOUT = 25.0  # seconds
 
 
@@ -79,8 +76,8 @@ def _fallback_reply(language: str) -> str:
 
 import asyncio
 
-async def _call_gemini(system: str, user_prompt: str, api_key: str, max_retries: int = 2) -> dict:
-    """POST to Gemini ``generateContent`` and return parsed JSON body.
+async def _call_groq(system: str, user_prompt: str, api_key: str, max_retries: int = 2) -> str:
+    """POST to Groq chat completions and return the generated text.
 
     Includes automatic exponential backoff for HTTP 429 (Rate Limit) and 50x errors.
     """
@@ -88,29 +85,29 @@ async def _call_gemini(system: str, user_prompt: str, api_key: str, max_retries:
         try:
             async with httpx.AsyncClient(timeout=_LLM_TIMEOUT) as client:
                 resp = await client.post(
-                    _GEMINI_ENDPOINT,
-                    params={"key": api_key},
+                    _GROQ_ENDPOINT,
+                    headers={"Authorization": f"Bearer {api_key}"},
                     json={
-                        "system_instruction": {"parts": [{"text": system}]},
-                        "contents": [
-                            {"role": "user", "parts": [{"text": user_prompt}]},
+                        "model": _GROQ_MODEL,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user_prompt},
                         ],
-                        "generationConfig": {
-                            "maxOutputTokens": 1000,
-                            "temperature": 0.3,
-                            "responseMimeType": "application/json",
-                        },
+                        "temperature": 0.3,
+                        "max_tokens": 1000,
+                        "response_format": {"type": "json_object"},
                     },
                 )
                 resp.raise_for_status()
-                return resp.json()
+                body = resp.json()
+                return body["choices"][0]["message"]["content"]
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             if status == 429 or status >= 500:
                 if attempt < max_retries:
                     wait_time = 2 ** attempt
                     logger.warning(
-                        "Gemini API returned %d. Retrying in %d seconds (attempt %d/%d)...",
+                        "Groq API returned %d. Retrying in %d seconds (attempt %d/%d)...",
                         status, wait_time, attempt + 1, max_retries
                     )
                     await asyncio.sleep(wait_time)
@@ -119,7 +116,7 @@ async def _call_gemini(system: str, user_prompt: str, api_key: str, max_retries:
         except httpx.TimeoutException:
             if attempt < max_retries:
                 wait_time = 2 ** attempt
-                logger.warning("Gemini API timeout. Retrying in %d seconds...", wait_time)
+                logger.warning("Groq API timeout. Retrying in %d seconds...", wait_time)
                 await asyncio.sleep(wait_time)
                 continue
             raise
@@ -176,9 +173,9 @@ async def analyze_ticket(ticket: TicketRequest) -> TicketResponse:
         recommended_next_action = _FALLBACK_NEXT_ACTION
         customer_reply = _fallback_reply(effective_language)
 
-        api_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = os.getenv("GROQ_API_KEY", "")
         if not api_key:
-            logger.warning("GEMINI_API_KEY not set — using fallback responses")
+            logger.warning("GROQ_API_KEY not set — using fallback responses")
             used_fallback = True
         else:
             try:
@@ -190,12 +187,7 @@ async def analyze_ticket(ticket: TicketRequest) -> TicketResponse:
                     language=effective_language,
                 )
 
-                body = await _call_gemini(SYSTEM_PROMPT, user_prompt, api_key)
-
-                # Extract text from Gemini response
-                raw_text = (
-                    body["candidates"][0]["content"]["parts"][0]["text"]
-                )
+                raw_text = await _call_groq(SYSTEM_PROMPT, user_prompt, api_key)
 
                 # Strip markdown fences if present
                 clean = _RE_MD_FENCES.sub("", raw_text).strip()
