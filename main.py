@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from analyzer import analyze_ticket as run_analysis
 from models import TicketRequest, TicketResponse
 
 # ---------------------------------------------------------------------------
@@ -89,7 +90,7 @@ async def health():
 
 
 @app.post("/analyze-ticket", response_model=TicketResponse)
-async def analyze_ticket(ticket: TicketRequest):
+async def analyze_ticket_endpoint(ticket: TicketRequest):
     # Reject empty / whitespace-only complaints with 422
     if not ticket.complaint or not ticket.complaint.strip():
         return JSONResponse(
@@ -97,22 +98,5 @@ async def analyze_ticket(ticket: TicketRequest):
             content={"detail": "complaint must not be empty or whitespace-only"},
         )
 
-    # --- Hardcoded placeholder response (analysis not yet wired) ----------
-    return TicketResponse(
-        ticket_id=ticket.ticket_id,
-        relevant_transaction_id=None,
-        evidence_verdict="insufficient_data",
-        case_type="other",
-        severity="medium",
-        department="customer_support",
-        agent_summary="Placeholder: analysis not yet implemented.",
-        recommended_next_action="Route to human agent for review.",
-        customer_reply=(
-            "Thank you for contacting support. A team member will review "
-            "your case and respond through official channels. Please do not "
-            "share your PIN or OTP with anyone."
-        ),
-        human_review_required=True,
-        confidence=0.5,
-        reason_codes=["placeholder"],
-    )
+    # Run the full 9-step analysis pipeline
+    return await run_analysis(ticket)
