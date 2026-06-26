@@ -289,6 +289,8 @@ _WRONG_TRANSFER_KW: List[str] = [
     "bhul number",
     "ভুল নাম্বার",
     "ভুল",
+    "didn't get it",
+    "did not get it",
 ]
 
 _PAYMENT_FAILED_KW: List[str] = [
@@ -300,6 +302,8 @@ _CASH_IN_NOT_RECEIVED_KW: List[str] = [
     "didn't receive",
     "did not receive",
     "not received",
+    "আসেনি",
+    "দেখছি না",
 ]
 
 
@@ -380,9 +384,15 @@ def judge_evidence_verdict(
 
     # Cash-in is pending and customer complains of non-receipt
     if _lower_contains(
-        complaint, ["cash in", "cash-in", "not received", "not reflected"]
+        complaint, ["cash in", "cash-in", "not received", "not reflected", "ক্যাশ ইন", "আসেনি"]
     ):
         if relevant_txn.type == "cash_in" and relevant_txn.status == "pending":
+            return "consistent"
+
+    # Refund request logic (TKT-004)
+    # If the user asks for a refund for a completed outgoing payment/transfer
+    if _lower_contains(complaint, _REFUND_KW):
+        if relevant_txn.status == "completed" and relevant_txn.type in ("payment", "transfer"):
             return "consistent"
 
     # ── Neither clear consistent nor inconsistent ────────────────────────
@@ -415,6 +425,8 @@ _WRONG_XFER_KW: List[str] = [
     "bhul number",
     "ভুল নাম্বার",
     "ভুল",
+    "didn't get it",
+    "did not get it",
 ]
 
 _PAY_FAILED_KW: List[str] = [
@@ -433,6 +445,8 @@ _AGENT_KW: List[str] = [
     "deposit",
     "not reflected",
     "balance nai",
+    "এজেন্ট",
+    "ক্যাশ ইন",
 ]
 
 _MERCHANT_KW: List[str] = [
@@ -562,7 +576,7 @@ def classify_case(
         merchant_keyword_hit = _lower_contains(complaint, _MERCHANT_KW)
         merchant_user = user_type == "merchant"
         merchant_channel = channel == "merchant_portal"
-        if merchant_keyword_hit or merchant_user or merchant_channel:
+        if user_type != "customer" and (merchant_keyword_hit or merchant_user or merchant_channel):
             result = {
                 "case_type": "merchant_settlement_delay",
                 "severity": "medium",
