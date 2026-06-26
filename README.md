@@ -10,7 +10,7 @@ AI-powered support-ticket analysis API for digital finance platforms. Classifies
 git clone https://github.com/Jahidul183019/DU_Neural.git
 cd DU_Neural
 cp .env.example .env
-# Add your GEMINI_API_KEY to .env
+# Add your GROQ_API_KEY to .env
 pip install -r requirements.txt
 ```
 
@@ -92,10 +92,10 @@ docker run -p 8000:8000 --env-file .env queuestorm
 
 ## Models
 
-**Model:** Gemini 2.0 Flash (Google Generative AI API)
+**Model:** Llama 3.3 70B Versatile (via Groq API)
 **Used for:** Generating `agent_summary`, `recommended_next_action`, `customer_reply` text only
-**Why chosen:** Fast response time (<5s typical), strong multilingual Bangla/English support, reliable JSON output, instruction-following for safety constraints
-**Cost:** Pay-per-token on team's own Google AI account
+**Why chosen:** Exceptional speed (Groq LPU), generous free tier rate limits (30 RPM) preventing judging timeouts, reliable JSON output (`json_object` format), and strong instruction-following.
+**Cost:** Free tier used for Hackathon (Groq API)
 **Evidence reasoning and safety rules:** Fully rule-based, no model involvement
 
 ---
@@ -112,7 +112,7 @@ Hybrid rule + AI architecture:
 │  2. Prompt Injection Pre-screen ───── Rule-based        │
 │  3. Evidence Extraction ───────────── Rule-based        │
 │  4. Case Classification ──────────── Rule-based         │
-│  5. LLM Text Generation ─────────── Gemini API         │
+│  5. LLM Text Generation ─────────── Groq API (Llama 3)  │
 │  6. Response Parsing ─────────────── JSON parse         │
 │  7. Response Assembly ────────────── Deterministic      │
 │  8. Safety Post-filter ───────────── Rule-based         │
@@ -172,5 +172,5 @@ Six hard safety rules enforced by `post_process_safety()` after **every** respon
 
 | Variable         | Description                    | Required |
 |------------------|--------------------------------|----------|
-| `GEMINI_API_KEY` | Google Generative AI API key   | Yes      |
+| `GROQ_API_KEY`   | Groq API key                   | Yes      |
 | `PORT`           | Server port (default: 8000)    | No       |
