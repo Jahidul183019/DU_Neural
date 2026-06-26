@@ -368,6 +368,11 @@ def judge_evidence_verdict(
                     return "inconsistent"
             except (ValueError, TypeError):
                 pass
+                
+    # "duplicate payment" claimed but no duplicate pair exists
+    if _lower_contains(complaint, _DUPLICATE_KW):
+        if _find_duplicate_pair(history) is None:
+            return "inconsistent"
 
     # ── CONSISTENCY checks ───────────────────────────────────────────────
 
@@ -522,13 +527,14 @@ def classify_case(
     # ─────────────────────────────────────────────────────────────────────
     # Rule 2 — Duplicate Payment
     # ─────────────────────────────────────────────────────────────────────
-    if result is None and _lower_contains(complaint, _DUPLICATE_KW) and _find_duplicate_pair(history) is not None:
+    if result is None and _lower_contains(complaint, _DUPLICATE_KW):
+        has_duplicate = _find_duplicate_pair(history) is not None
         result = {
             "case_type": "duplicate_payment",
             "severity": "high",
             "department": "payments_ops",
             "human_review_required": True,
-            "reason_codes": ["duplicate_payment_detected"],
+            "reason_codes": ["duplicate_payment_detected" if has_duplicate else "duplicate_payment_claimed"],
         }
 
     # ─────────────────────────────────────────────────────────────────────
