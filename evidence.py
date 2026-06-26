@@ -244,19 +244,50 @@ def detect_language(complaint: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _score_transaction(
+    txn: TransactionEntry,
+    amounts: List[float],
+    time_window: Optional[Tuple[datetime, datetime]],
+    cp_hints: List[str],
+    len_history: int,
+) -> float:
+    """Calculate a match score for a transaction against extracted complaint data."""
+    score = 0.0
+    
+    # If there's only 1 transaction in the history, give it a baseline bump
+    if len_history == 1:
+        score += 2.0
+        
+    # Amount match is the strongest signal
+    if amounts and txn.amount is not None:
+        if any(abs(txn.amount - a) < 0.01 for a in amounts):
+            score += 5.0
+            
+    # Counterparty match is also very strong
+    if cp_hints and txn.counterparty:
+        if _counterparty_matches_hint(txn.counterparty, cp_hints):
+            score += 4.0
+            
+    # Time window match
+    if time_window:
+        try:
+            ts = _parse_timestamp(txn.timestamp)
+            start, end = time_window
+            if start <= ts <= end:
+                score += 2.0
+        except (ValueError, TypeError):
+            pass
+            
+    return score
+
+
 def find_relevant_transaction(
     complaint: str,
     history: List[TransactionEntry],
 ) -> Optional[str]:
     """Return the ``transaction_id`` of the best-matching entry, or *None*.
 
-    Matching priority:
-      1. Amount extracted from complaint
-      2. Time-proximity keywords (today, yesterday, …)
-      3. Counterparty hints (phone numbers, merchant / agent IDs)
-
-    Special case: duplicate-payment pairs (same amount + counterparty
-    within 60 s) always return the **second** transaction's ID.
+    Uses a weighted scoring system based on amount, counterparty, and time.
     """
     if not history:
         return None
@@ -275,52 +306,37 @@ def find_relevant_transaction(
         if dup_id is not None:
             return dup_id
 
-    # ── Step 1 – amounts ─────────────────────────────────────────────────
+    # ── Step 1 – Extract hints ───────────────────────────────────────────
     amounts = _extract_amounts(complaint)
-
-    # ── Step 2 – time window ─────────────────────────────────────────────
     time_window = _extract_time_window(complaint, now)
-
-    # ── Step 3 – counterparty hints ──────────────────────────────────────
     cp_hints = _extract_counterparty_hints(complaint)
 
-    # ── Candidate selection (progressive narrowing) ──────────────────────
-    candidates = list(history)
+    # ── Step 2 – Score all candidates ────────────────────────────────────
+    scored_candidates = []
+    len_history = len(history)
+    for txn in history:
+        score = _score_transaction(txn, amounts, time_window, cp_hints, len_history)
+        if score > 0:
+            scored_candidates.append((score, txn))
 
-    # Filter by amount
-    if amounts:
-        amount_match = [t for t in candidates if t.amount in amounts]
-        if amount_match:
-            candidates = amount_match
+    if not scored_candidates:
+        return None
 
-    # Filter by time proximity
-    if time_window:
-        start, end = time_window
-        time_match: List[TransactionEntry] = []
-        for t in candidates:
-            try:
-                ts = _parse_timestamp(t.timestamp)
-                if start <= ts <= end:
-                    time_match.append(t)
-            except (ValueError, TypeError):
-                continue
-        if time_match:
-            candidates = time_match
+    # Sort descending by score
+    scored_candidates.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_txn = scored_candidates[0]
 
-    # Filter by counterparty
-    if cp_hints:
-        cp_match = [
-            t for t in candidates
-            if _counterparty_matches_hint(t.counterparty, cp_hints)
-        ]
-        if cp_match:
-            candidates = cp_match
+    # If the score is too low, it's not a reliable match
+    if best_score < 4.0:
+        return None
 
-    # ── Decision ─────────────────────────────────────────────────────────
-    if len(candidates) == 1:
-        return candidates[0].transaction_id
-    # Zero or multiple → ambiguous, do NOT guess
-    return None
+    # If there's a tie for the top score, it's ambiguous
+    if len(scored_candidates) > 1:
+        runner_up_score = scored_candidates[1][0]
+        if abs(best_score - runner_up_score) < 0.01:
+            return None
+
+    return best_txn.transaction_id
 
 
 # ═══════════════════════════════════════════════════════════════════════════
