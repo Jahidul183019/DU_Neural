@@ -644,20 +644,22 @@ def classify_case(
         if "evidence_inconsistent" not in result["reason_codes"]:
             result["reason_codes"].append("evidence_inconsistent")
 
-    if max_amount > 5000:
+    if max_amount > 5000 and user_type == "customer":
         always_true = True
         if "high_value_transaction" not in result["reason_codes"]:
             result["reason_codes"].append("high_value_transaction")
 
-    if result["case_type"] in (
-        "wrong_transfer",
-        "duplicate_payment",
-        "phishing_or_social_engineering",
-    ):
+    if result["case_type"] == "phishing_or_social_engineering":
         always_true = True
+    elif result["case_type"] in ("wrong_transfer", "duplicate_payment"):
+        if evidence_verdict != "insufficient_data":
+            always_true = True
 
     if always_true:
         result["human_review_required"] = True
+
+    if evidence_verdict == "insufficient_data" and result["case_type"] != "phishing_or_social_engineering":
+        result["human_review_required"] = False
 
     # ── "Always False" condition (only when no "Always True" fired) ──────
     #    Applies when the only viable next step is to ask the customer
