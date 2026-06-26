@@ -48,7 +48,7 @@ class TicketResponse(BaseModel):
     """Structured analysis result returned to the client."""
 
     ticket_id: str
-    relevant_transaction_id: Optional[str] = None  # JSON null, never string "null"
+    relevant_transaction_id: Optional[str]  # Required field, but can be null
     evidence_verdict: Literal["consistent", "inconsistent", "insufficient_data"]
     case_type: Literal[
         "wrong_transfer",
