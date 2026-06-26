@@ -208,15 +208,6 @@ async def analyze_ticket(ticket: TicketRequest) -> TicketResponse:
             except (
                 httpx.TimeoutException,
                 httpx.HTTPStatusError,
-            ) as exc:
-                logger.error(
-                    "LLM service unavailable for ticket %s: %s",
-                    ticket.ticket_id,
-                    exc,
-                )
-                from fastapi import HTTPException
-                raise HTTPException(status_code=503, detail="LLM service temporarily unavailable")
-            except (
                 json.JSONDecodeError,
                 KeyError,
                 IndexError,
