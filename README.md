@@ -7,8 +7,8 @@ AI-powered support-ticket analysis API for digital finance platforms. Classifies
 ## Setup
 
 ```bash
-git clone https://github.com/Jahidul183019/DU_Neural.git
-cd DU_Neural
+git clone https://github.com/Jahidul183019/QueueStorm.git
+cd QueueStorm
 cp .env.example .env
 # Add your GROQ_API_KEY to .env
 pip install -r requirements.txt
